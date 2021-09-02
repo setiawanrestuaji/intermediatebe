@@ -4,6 +4,9 @@ const jwt = require('jsonwebtoken')
 
 const authentication = require('./middleware/authentication')
 const authorization = require('./middleware/authorization')
+// const multer  = require('multer')
+// const upload = multer({ dest: 'uploads/' })
+const upload = require('./middleware/upload')
 
 const router = express.Router()
 
@@ -80,7 +83,21 @@ router
     }
   })
 })
-
+.post('/upload', upload, (req, res) => {
+  const image = req.file.filename // nama file yang akan di simpan ke db
+  const {email, password, level} = req.body
+  connection.query(`
+    INSERT INTO users (email, password, level, image)
+    VALUES
+    ('${email}','${password}','${level}','${image}')
+  `, (err, result) => {
+    if(err){
+      res.json(err)
+    }else{
+      res.json(result)
+    }
+  })
+})
 // authentication => mengecheck token
 // authorization => mengecheck level
 

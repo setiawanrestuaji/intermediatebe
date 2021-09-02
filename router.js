@@ -7,6 +7,17 @@ const authorization = require('./middleware/authorization')
 // const multer  = require('multer')
 // const upload = multer({ dest: 'uploads/' })
 const upload = require('./middleware/upload')
+const _ = require('lodash')
+const redisAction = require('./helpers/redis')
+
+const redis = require('redis')
+const client = redis.createClient({
+  host: '127.0.0.1', // localhost
+  port: 6379,
+})
+client.on('error', (err) => {
+  console.log(err)
+})
 
 const router = express.Router()
 
@@ -27,7 +38,15 @@ router
     if(err){
       res.json(err)
     }else{
-      res.json(result)
+      // Cara 1
+      // client.del("users")
+      // res.json(result)
+
+      // Cara 2
+      connection.query(`SELECT * FROM users`, (err, result) => {
+        client.set("users", JSON.stringify(result))
+        res.json(result)
+      })
     }
   })
 })
@@ -100,5 +119,53 @@ router
 })
 // authentication => mengecheck token
 // authorization => mengecheck level
+.post('/set-redis', (req, res) => {
+  connection.query(`SELECT * FROM users`, (err, result) => {
+    client.set("users", JSON.stringify(result))
+    res.json(result)
+  })
+})
+.get('/users', (req, res) => {
+  const search = req.query.search ? req.query.search : ''
+  const page = req.query.page ? req.query.page : 1
+  const limit = req.query.limit ? parseInt(req.query.limit) : 2
+  const start = page === 1 ? 0 : (page-1)*limit
+
+  client.get("users", (err, result) => {
+    if(!result){ // data di redis tidak ada
+      // Get all data, tujuan untuk dimasukkan ke redis
+      connection.query(`SELECT * FROM users`, (err, result) => {
+        redisAction.set("users", JSON.stringify(result))
+      // Get data from mysql dengan search, tujuan untuk response
+        connection.query(`SELECT * FROM users  WHERE email LIKE '%${search}%'`, (err, resultSearch) => {
+          res.json({
+            data: resultSearch,
+            msg: 'Data from MYSQL'
+          })
+        })
+      })
+    }else{
+      const response = JSON.parse(result) // convert data dari redis ke json
+      const dataFiltered = _.filter(response, (e) => {
+        return e.email.includes(search)
+      })
+      const paginate = _.slice(dataFiltered, start, start+limit)
+      // page 1 = 0         , 0+10  => 0 - 10
+      // page 2 = (2-1)*10  , 10+10 => 10 - 20
+      res.json({
+        data: paginate,
+        msg: 'Data from Redis'
+      })
+    }
+  })
+})
+.get('/send-email', (req, res) => {
+  const sendEmail = require('./helpers/mail')
+  sendEmail(req.query.email).then((response) => {
+    res.json(response)
+  }).catch((err) => {
+    res.json(err)
+  })
+})
 
 module.exports = router
